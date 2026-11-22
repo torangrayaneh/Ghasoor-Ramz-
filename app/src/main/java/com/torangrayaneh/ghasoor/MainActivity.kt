@@ -8,6 +8,8 @@ import android.os.Bundle
 import android.util.Base64
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
@@ -27,6 +29,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
+import java.io.File
 import org.json.JSONArray
 import org.json.JSONObject
 import java.security.KeyStore
@@ -56,7 +60,8 @@ data class VaultEntry(
     val secret: String,
     val note: String,
     val updatedAt: Long = System.currentTimeMillis(),
-    val history: List<String> = emptyList()
+    val history: List<String> = emptyList(),
+    val cardPhoto: String = ""
 )
 
 class MainActivity : FragmentActivity() {
@@ -131,7 +136,7 @@ private class VaultStore(private val activity: FragmentActivity) {
             val oldHistory = o.optJSONArray("history") ?: JSONArray()
             VaultEntry(o.optString("title"), o.optString("category"), o.optString("username"),
                 o.optString("secret"), o.optString("note"), o.optLong("updatedAt", System.currentTimeMillis()),
-                (0 until oldHistory.length()).map { oldHistory.getString(it) })
+                (0 until oldHistory.length()).map { oldHistory.getString(it) }, o.optString("cardPhoto", ""))
         }
     }
     fun save(entries: List<VaultEntry>) {
@@ -142,7 +147,7 @@ private class VaultStore(private val activity: FragmentActivity) {
             e.history.forEach { h.put(it) }
             array.put(JSONObject().put("title", e.title).put("category", e.category)
                 .put("username", e.username).put("secret", e.secret).put("note", e.note)
-                .put("updatedAt", e.updatedAt).put("history", h))
+                .put("updatedAt", e.updatedAt).put("history", h).put("cardPhoto", e.cardPhoto))
         }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
@@ -168,6 +173,7 @@ private fun VaultApp(activity: FragmentActivity) {
     var editing by remember { mutableStateOf<VaultEntry?>(null) }
     var tab by remember { mutableStateOf(VaultTab.HOME) }
     var revealed by remember { mutableStateOf(setOf<String>()) }
+    var showAbout by remember { mutableStateOf(false) }
     val context = LocalContext.current
 
     if (!unlocked) {
@@ -220,7 +226,10 @@ private fun VaultApp(activity: FragmentActivity) {
         Scaffold(containerColor = Navy, topBar = {
             TopAppBar(
                 title = { Column { Text("گاوصندوق رمز من", fontWeight = FontWeight.Bold, color = Cream); Text("مدیریت امن اطلاعات محرمانه", style = MaterialTheme.typography.labelSmall, color = Muted) } },
-                actions = { IconButton(onClick = { unlocked = false; entries = emptyList(); revealed = emptySet() }) { Icon(Icons.Filled.Lock, "قفل برنامه", tint = Gold) } },
+                actions = {
+                    IconButton(onClick = { showAbout = true }) { Icon(Icons.Filled.Info, "درباره ما", tint = Gold) }
+                    IconButton(onClick = { unlocked = false; entries = emptyList(); revealed = emptySet() }) { Icon(Icons.Filled.Lock, "قفل برنامه", tint = Gold) }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Navy)
             )
         }, bottomBar = {
@@ -339,12 +348,34 @@ private fun VaultApp(activity: FragmentActivity) {
         }
     }
 
+    if (showAbout) {
+        AlertDialog(onDismissRequest = { showAbout = false },
+            title = { Text("درباره ما") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("گاوصندوق رمز من", color = Gold, fontWeight = FontWeight.Bold)
+                Text("برنامه‌نویس: kasra yarahmadi")
+                Text("ایمیل: torangrayaneh@gmail.com", color = Cream)
+                Text("نسخه ۱.۰", color = Muted)
+            } },
+            confirmButton = { TextButton(onClick = { showAbout = false }) { Text("بستن") } })
+    }
+
     if (showAdd) {
         var title by remember { mutableStateOf(editing?.title ?: "") }
         var category by remember { mutableStateOf(editing?.category ?: if (tab == VaultTab.BANKS) "بانک و کارت بانکی" else "اپلیکیشن و شبکه اجتماعی") }
         var username by remember { mutableStateOf(editing?.username ?: "") }
         var secret by remember { mutableStateOf(editing?.secret ?: "") }
         var note by remember { mutableStateOf(editing?.note ?: "") }
+        var cardPhoto by remember { mutableStateOf(editing?.cardPhoto ?: "") }
+        var cameraFile by remember { mutableStateOf<File?>(null) }
+        val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+            val file = cameraFile
+            if (success && file != null && file.exists()) {
+                cardPhoto = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+            }
+            file?.delete()
+            cameraFile = null
+        }
         AlertDialog(
             onDismissRequest = { showAdd = false; editing = null },
             title = { Text(if (editing == null) "افزودن اطلاعات جدید" else "ویرایش اطلاعات") },
@@ -363,15 +394,31 @@ private fun VaultApp(activity: FragmentActivity) {
                     OutlinedTextField(username, { username = it }, label = { Text("نام کاربری / شناسه / شماره کارت") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(secret, { secret = it }, label = { Text("رمز یا اطلاعات محرمانه") }, visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                     OutlinedTextField(note, { note = it }, label = { Text("یادداشت") }, modifier = Modifier.fillMaxWidth())
+                    if (category == "بانک و کارت بانکی") {
+                        OutlinedButton(onClick = {
+                            try {
+                                val file = File(activity.cacheDir, "card_${System.currentTimeMillis()}.jpg")
+                                cameraFile = file
+                                val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
+                                cameraLauncher.launch(uri)
+                            } catch (_: Exception) { message = "باز کردن دوربین ممکن نشد." }
+                        }, modifier = Modifier.fillMaxWidth()) {
+                            Icon(Icons.Filled.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text(if (cardPhoto.isBlank()) "عکس‌برداری از کارت" else "گرفتن عکس جدید")
+                        }
+                        if (cardPhoto.isNotBlank()) {
+                            Text("عکس کارت ثبت شده است و همراه اطلاعات رمزگذاری می‌شود.", color = Gold, style = MaterialTheme.typography.bodySmall)
+                            TextButton(onClick = { cardPhoto = "" }) { Text("حذف عکس کارت") }
+                        }
+                    }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
                     if (title.isNotBlank() && secret.isNotBlank()) {
                         val old = editing
-                        val updated = if (old == null) VaultEntry(title, category, username, secret, note)
+                        val updated = if (old == null) VaultEntry(title, category, username, secret, note, cardPhoto = cardPhoto)
                         else old.copy(title = title, category = category, username = username,
-                            secret = secret, note = note, updatedAt = System.currentTimeMillis(),
+                            secret = secret, note = note, updatedAt = System.currentTimeMillis(), cardPhoto = cardPhoto,
                             history = if (secret != old.secret) old.history + old.secret else old.history)
                         entries = if (old == null) entries + updated else entries.map { if (it == old) updated else it }
                         store.save(entries); showAdd = false; editing = null
@@ -437,6 +484,12 @@ private fun EntryCard(entry: VaultEntry, reveal: Boolean, toggle: () -> Unit, ed
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(if (reveal) entry.secret else "••••••••", color = Cream, modifier = Modifier.weight(1f))
             IconButton(onClick = toggle) { Icon(if (reveal) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, "نمایش یا پنهان کردن رمز", tint = Gold) }
+        }
+        if (entry.cardPhoto.isNotBlank()) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.PhotoCamera, null, tint = Gold)
+                Text("عکس کارت بانکی ذخیره شده", color = Gold, style = MaterialTheme.typography.bodySmall)
+            }
         }
         if (entry.note.isNotBlank()) Text(entry.note, color = Muted, style = MaterialTheme.typography.bodySmall)
         Row(verticalAlignment = Alignment.CenterVertically) {
