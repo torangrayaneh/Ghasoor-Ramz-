@@ -47,6 +47,8 @@ import javax.crypto.SecretKey
 import javax.crypto.SecretKeyFactory
 import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
+import javax.crypto.spec.SecretKeySpec
+import android.net.Uri
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.SecureRandom
@@ -74,6 +76,7 @@ data class VaultEntry(
 class MainActivity : FragmentActivity() {
     var cameraResultCallback: ((Boolean) -> Unit)? = null
     var cameraPermissionResultCallback: ((Boolean) -> Unit)? = null
+    var documentResultCallback: ((Int, Uri?) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -97,6 +100,8 @@ class MainActivity : FragmentActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 1201) {
             cameraResultCallback?.invoke(resultCode == android.app.Activity.RESULT_OK)
+        } else if (requestCode == 1301 || requestCode == 1302) {
+            documentResultCallback?.invoke(requestCode, if (resultCode == RESULT_OK) data?.data else null)
         }
     }
 }
@@ -182,6 +187,40 @@ private class VaultStore(private val activity: FragmentActivity) {
         val encrypted = cipher.doFinal(array.toString().toByteArray(Charsets.UTF_8))
         prefs.edit().putString("vault_blob", Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)).apply()
     }
+
+    fun createPortableBackup(entries: List<VaultEntry>, backupPassword: String): ByteArray {
+        val array = JSONArray()
+        entries.forEach { e ->
+            val h = JSONArray()
+            e.history.forEach { h.put(it) }
+            array.put(JSONObject().put("title", e.title).put("category", e.category)
+                .put("username", e.username).put("secret", e.secret).put("note", e.note)
+                .put("updatedAt", e.updatedAt).put("history", h).put("cardPhoto", e.cardPhoto))
+        }
+        val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
+        val portableKey = SecretKeySpec(derive(backupPassword, salt), "AES")
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, portableKey)
+        val encrypted = cipher.doFinal(array.toString().toByteArray(Charsets.UTF_8))
+        return byteArrayOf(71, 86, 66, 49) + salt + cipher.iv + encrypted
+    }
+
+    fun restorePortableBackup(data: ByteArray, backupPassword: String): List<VaultEntry> {
+        require(data.size > 32 && data[0] == 71.toByte() && data[1] == 86.toByte() &&
+            data[2] == 66.toByte() && data[3] == 49.toByte()) { "فایل پشتیبان معتبر نیست." }
+        val salt = data.copyOfRange(4, 20)
+        val iv = data.copyOfRange(20, 32)
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, SecretKeySpec(derive(backupPassword, salt), "AES"), GCMParameterSpec(128, iv))
+        val array = JSONArray(String(cipher.doFinal(data.copyOfRange(32, data.size)), Charsets.UTF_8))
+        return (0 until array.length()).map { i ->
+            val o = array.getJSONObject(i)
+            val oldHistory = o.optJSONArray("history") ?: JSONArray()
+            VaultEntry(o.optString("title"), o.optString("category"), o.optString("username"),
+                o.optString("secret"), o.optString("note"), o.optLong("updatedAt", System.currentTimeMillis()),
+                (0 until oldHistory.length()).map { oldHistory.getString(it) }, o.optString("cardPhoto", ""))
+        }
+    }
 }
 
 private enum class VaultTab(val title: String) {
@@ -206,6 +245,10 @@ private fun VaultApp(activity: MainActivity) {
     var cameraFile by remember { mutableStateOf<File?>(null) }
     var latestCardPhoto by remember { mutableStateOf<String?>(null) }
     var cameraErrorMessage by remember { mutableStateOf("") }
+    var showBackupDialog by remember { mutableStateOf(false) }
+    var backupPassword by remember { mutableStateOf("") }
+    var backupMessage by remember { mutableStateOf("") }
+    var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
     DisposableEffect(activity) {
         activity.cameraResultCallback = { success: Boolean ->
             val file = cameraFile
@@ -228,7 +271,31 @@ private fun VaultApp(activity: MainActivity) {
             file?.delete()
             cameraFile = null
         }
-        onDispose { activity.cameraResultCallback = null }
+        activity.documentResultCallback = { requestCode: Int, uri: Uri? ->
+            try {
+                if (uri != null && requestCode == 1301) {
+                    val bytes = pendingBackup ?: throw IllegalStateException("نسخه پشتیبان آماده نیست.")
+                    activity.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                        ?: throw IllegalStateException("ذخیره فایل انجام نشد.")
+                    backupMessage = "نسخه پشتیبان رمزگذاری‌شده با موفقیت ذخیره شد."
+                } else if (uri != null && requestCode == 1302) {
+                    val bytes = activity.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        ?: throw IllegalStateException("خواندن فایل ممکن نشد.")
+                    val restored = store.restorePortableBackup(bytes, backupPassword)
+                    store.save(restored)
+                    entries = restored
+                    backupMessage = "بازیابی موفق بود؛ ${restored.size} مورد به گاوصندوق منتقل شد."
+                }
+            } catch (e: Exception) {
+                backupMessage = "عملیات ناموفق بود: ${e.localizedMessage ?: "رمز نادرست یا فایل نامعتبر"}"
+            } finally {
+                pendingBackup = null
+            }
+        }
+        onDispose {
+            activity.cameraResultCallback = null
+            activity.documentResultCallback = null
+        }
     }
     val launchCamera: () -> Unit = {
         try {
@@ -394,6 +461,9 @@ private fun VaultApp(activity: MainActivity) {
                             ReportRow("موارد دارای سابقه رمز", entries.count { it.history.isNotEmpty() }.toString())
                             ReportRow("آخرین بروزرسانی", if (entries.isEmpty()) "—" else date(entries.maxOf { it.updatedAt }))
                             Spacer(Modifier.height(16.dp))
+                            OutlinedButton(onClick = { showBackupDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                                Icon(Icons.Filled.Security, null); Spacer(Modifier.width(8.dp)); Text("پشتیبان‌گیری و بازیابی امن")
+                            }
                             Button(onClick = {
                                 val report = buildString {
                                     appendLine("گزارش گاوصندوق رمز من")
@@ -421,6 +491,47 @@ private fun VaultApp(activity: MainActivity) {
                 }
             }
         }
+    }
+
+    if (showBackupDialog) {
+        AlertDialog(
+            onDismissRequest = { showBackupDialog = false; backupMessage = "" },
+            title = { Text("پشتیبان‌گیری رمزگذاری‌شده") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("از تمام اطلاعات، رمزها، سوابق و عکس کارت‌ها یک فایل رمزگذاری‌شده ساخته می‌شود. برای بازیابی در گوشی دیگر همین رمز لازم است.", color = Muted)
+                    OutlinedTextField(value = backupPassword, onValueChange = { backupPassword = it },
+                        label = { Text("رمز اختصاصی فایل پشتیبان (حداقل ۸ کاراکتر)") },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                    if (backupMessage.isNotBlank()) Text(backupMessage, color = if (backupMessage.contains("موفق")) Gold else MaterialTheme.colorScheme.error)
+                }
+            },
+            confirmButton = {
+                Column {
+                    TextButton(onClick = {
+                        if (backupPassword.length < 8) backupMessage = "رمز پشتیبان باید حداقل ۸ کاراکتر باشد."
+                        else try {
+                            pendingBackup = store.createPortableBackup(entries, backupPassword)
+                            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE); type = "application/octet-stream"
+                                putExtra(Intent.EXTRA_TITLE, "GhasoorRamz-Backup.gvb")
+                            }
+                            activity.startActivityForResult(intent, 1301)
+                        } catch (e: Exception) { backupMessage = "ساخت نسخه پشتیبان ناموفق بود: ${e.localizedMessage}" }
+                    }) { Text("ایجاد فایل پشتیبان") }
+                    TextButton(onClick = {
+                        if (backupPassword.length < 8) backupMessage = "رمز پشتیبان باید حداقل ۸ کاراکتر باشد."
+                        else {
+                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
+                            }
+                            activity.startActivityForResult(intent, 1302)
+                        }
+                    }) { Text("بازیابی از فایل پشتیبان") }
+                }
+            },
+            dismissButton = { TextButton(onClick = { showBackupDialog = false; backupMessage = ""; backupPassword = "" }) { Text("بستن") } }
+        )
     }
 
     if (showAbout) {
