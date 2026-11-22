@@ -9,7 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.ByteArrayOutputStream
 import android.util.Base64
-import androidx.fragment.app.FragmentActivity
+import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -70,7 +70,7 @@ data class VaultEntry(
     val cardPhoto: String = ""
 )
 
-class MainActivity : FragmentActivity() {
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = android.graphics.Color.rgb(11, 18, 32)
@@ -90,7 +90,7 @@ private fun VaultTheme(content: @Composable () -> Unit) {
     MaterialTheme(colorScheme = colors, content = content)
 }
 
-private class VaultStore(private val activity: FragmentActivity) {
+private class VaultStore(private val activity: ComponentActivity) {
     private val prefs = activity.getSharedPreferences("vault_settings", Context.MODE_PRIVATE)
     private val alias = "ghasoor_vault_key"
     fun hasMaster() = prefs.contains("master_hash")
@@ -168,7 +168,7 @@ private enum class VaultTab(val title: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VaultApp(activity: FragmentActivity) {
+private fun VaultApp(activity: ComponentActivity) {
     val store = remember { VaultStore(activity) }
     var hasMaster by remember { mutableStateOf(store.hasMaster()) }
     var unlocked by remember { mutableStateOf(false) }
