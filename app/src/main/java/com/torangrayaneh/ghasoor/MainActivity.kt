@@ -153,6 +153,7 @@ private enum class VaultTab(val title: String) {
     HOME("خانه"), BANKS("بانک‌ها"), APPS("برنامه‌ها"), HISTORY("سوابق رمزها"), REPORTS("گزارش‌ها")
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun VaultApp(activity: FragmentActivity) {
     val store = remember { VaultStore(activity) }
@@ -290,7 +291,7 @@ private fun VaultApp(activity: FragmentActivity) {
                                     Text(e.title, color = Cream, fontWeight = FontWeight.Bold)
                                     Text(e.category, color = Gold, style = MaterialTheme.typography.labelMedium)
                                     Text("تعداد نسخه‌های قبلی: ${e.history.size}", color = Muted)
-                                    e.history.forEachIndexed { i, old -> Text("نسخه ${i + 1}: ••••••••  |  ${old}", color = Muted, style = MaterialTheme.typography.bodySmall) }
+                                    e.history.forEachIndexed { i, old -> Text("نسخه ${i + 1}: ••••••••", color = Muted, style = MaterialTheme.typography.bodySmall) }
                                 }
                             }
                         }
