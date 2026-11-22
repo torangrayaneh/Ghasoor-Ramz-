@@ -426,16 +426,18 @@ private fun VaultApp(activity: FragmentActivity) {
                                     clipData = ClipData.newUri(activity.contentResolver, "card_photo", uri)
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
                                 }
-                                if (intent.resolveActivity(activity.packageManager) != null) {
-                                    cameraError = ""
-                                    cameraLauncher.launch(intent)
-                                } else {
-                                    cameraError = "هیچ برنامه دوربینی روی گوشی پیدا نشد."
-                                    cameraFile = null
-                                    file.delete()
-                                }
-                            } catch (_: Exception) {
-                                cameraError = "باز کردن دوربین ممکن نشد؛ مجوز یا برنامه دوربین را بررسی کنید."
+                                cameraError = ""
+                                // Do not call resolveActivity here: Android 11+ package visibility
+                                // can hide camera apps and incorrectly report that no camera exists.
+                                cameraLauncher.launch(intent)
+                            } catch (e: android.content.ActivityNotFoundException) {
+                                cameraError = "برنامه دوربین روی گوشی در دسترس نیست."
+                                cameraFile?.delete()
+                                cameraFile = null
+                            } catch (e: Exception) {
+                                cameraError = "اجرای دوربین ناموفق بود: ${e.localizedMessage ?: "خطای نامشخص"}"
+                                cameraFile?.delete()
+                                cameraFile = null
                             }
                         }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Filled.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text(if (cardPhoto.isBlank()) "عکس‌برداری از کارت" else "گرفتن عکس جدید")
