@@ -361,7 +361,7 @@ private fun VaultApp(activity: FragmentActivity) {
                 Text("گاوصندوق رمز من", color = Gold, fontWeight = FontWeight.Bold)
                 Text("برنامه‌نویس: kasra yarahmadi")
                 Text("ایمیل: torangrayaneh@gmail.com", color = Cream)
-                Text("نسخه ۱.۰", color = Muted)
+                Text("نسخه ۱.۱", color = Muted)
             } },
             confirmButton = { TextButton(onClick = { showAbout = false }) { Text("بستن") } })
     }
@@ -421,7 +421,19 @@ private fun VaultApp(activity: FragmentActivity) {
                             Icon(Icons.Filled.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text(if (cardPhoto.isBlank()) "عکس‌برداری از کارت" else "گرفتن عکس جدید")
                         }
                         if (cardPhoto.isNotBlank()) {
-                            Text("عکس کارت ثبت شده است و همراه اطلاعات رمزگذاری می‌شود.", color = Gold, style = MaterialTheme.typography.bodySmall)
+                            Text("پیش‌نمایش عکس کارت؛ تصویر همراه اطلاعات گاوصندوق رمزگذاری می‌شود.", color = Gold, style = MaterialTheme.typography.bodySmall)
+                            val previewBytes = remember(cardPhoto) { Base64.decode(cardPhoto, Base64.NO_WRAP) }
+                            val previewBitmap = remember(cardPhoto) {
+                                BitmapFactory.decodeByteArray(previewBytes, 0, previewBytes.size)?.asImageBitmap()
+                            }
+                            if (previewBitmap != null) {
+                                Image(
+                                    bitmap = previewBitmap,
+                                    contentDescription = "پیش‌نمایش کارت بانکی",
+                                    modifier = Modifier.fillMaxWidth().height(130.dp),
+                                    contentScale = ContentScale.Fit
+                                )
+                            }
                             TextButton(onClick = { cardPhoto = "" }) { Text("حذف عکس کارت") }
                         }
                     }
