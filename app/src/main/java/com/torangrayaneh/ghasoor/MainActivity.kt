@@ -2,11 +2,7 @@
 
 package com.torangrayaneh.ghasoor
 
-import android.app.Activity
-import android.content.ClipData
 import android.content.Context
-import android.content.Intent
-import android.provider.MediaStore
 import android.os.Bundle
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -184,6 +180,32 @@ private fun VaultApp(activity: FragmentActivity) {
     var revealed by remember { mutableStateOf(setOf<String>()) }
     var showAbout by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    var cameraFile by remember { mutableStateOf<File?>(null) }
+    var latestCardPhoto by remember { mutableStateOf<String?>(null) }
+    var cameraErrorMessage by remember { mutableStateOf("") }
+    // Register the launcher unconditionally at the screen level. Conditional registration
+    // inside the add-entry dialog can produce invalid ActivityResult request-code mappings.
+    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val file = cameraFile
+        if (success && file != null && file.exists() && file.length() > 0L) {
+            val original = BitmapFactory.decodeFile(file.absolutePath)
+            if (original != null) {
+                val ratio = minOf(1f, 1280f / maxOf(original.width, original.height))
+                val resized = if (ratio < 1f) Bitmap.createScaledBitmap(original, (original.width * ratio).toInt(), (original.height * ratio).toInt(), true) else original
+                val output = ByteArrayOutputStream()
+                resized.compress(Bitmap.CompressFormat.JPEG, 78, output)
+                latestCardPhoto = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+                if (resized !== original) resized.recycle()
+                original.recycle()
+            } else cameraErrorMessage = "خواندن عکس کارت ممکن نشد؛ دوباره عکس بگیرید."
+        } else if (success) {
+            cameraErrorMessage = "دوربین عکس را ذخیره نکرد؛ دوباره تلاش کنید."
+        } else if (file != null && (!file.exists() || file.length() == 0L)) {
+            cameraErrorMessage = "عکسی از دوربین دریافت نشد؛ دوباره تلاش کنید."
+        }
+        file?.delete()
+        cameraFile = null
+    }
 
     if (!unlocked) {
         Box(Modifier.fillMaxSize().background(Navy).padding(24.dp), contentAlignment = Alignment.Center) {
@@ -376,26 +398,12 @@ private fun VaultApp(activity: FragmentActivity) {
         var secret by remember { mutableStateOf(editing?.secret ?: "") }
         var note by remember { mutableStateOf(editing?.note ?: "") }
         var cardPhoto by remember { mutableStateOf(editing?.cardPhoto ?: "") }
-        var cameraFile by remember { mutableStateOf<File?>(null) }
-        var cameraError by remember { mutableStateOf("") }
-        val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val file = cameraFile
-            if (result.resultCode == Activity.RESULT_OK && file != null && file.exists() && file.length() > 0L) {
-                val original = BitmapFactory.decodeFile(file.absolutePath)
-                if (original != null) {
-                    val ratio = minOf(1f, 1280f / maxOf(original.width, original.height))
-                    val resized = if (ratio < 1f) Bitmap.createScaledBitmap(original, (original.width * ratio).toInt(), (original.height * ratio).toInt(), true) else original
-                    val output = ByteArrayOutputStream()
-                    resized.compress(Bitmap.CompressFormat.JPEG, 78, output)
-                    cardPhoto = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
-                    if (resized !== original) resized.recycle()
-                    original.recycle()
-                } else cameraError = "خواندن عکس کارت ممکن نشد؛ دوباره عکس بگیرید."
-            } else if (result.resultCode == Activity.RESULT_OK) {
-                cameraError = "دوربین عکس را ذخیره نکرد؛ دوباره تلاش کنید."
+        LaunchedEffect(latestCardPhoto) {
+            latestCardPhoto?.let {
+                cardPhoto = it
+                latestCardPhoto = null
+                cameraErrorMessage = ""
             }
-            file?.delete()
-            cameraFile = null
         }
         AlertDialog(
             onDismissRequest = { showAdd = false; editing = null },
@@ -421,28 +429,17 @@ private fun VaultApp(activity: FragmentActivity) {
                                 val file = File(activity.cacheDir, "card_${System.currentTimeMillis()}.jpg")
                                 cameraFile = file
                                 val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
-                                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                                    putExtra(MediaStore.EXTRA_OUTPUT, uri)
-                                    clipData = ClipData.newUri(activity.contentResolver, "card_photo", uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
-                                }
-                                cameraError = ""
-                                // Do not call resolveActivity here: Android 11+ package visibility
-                                // can hide camera apps and incorrectly report that no camera exists.
-                                cameraLauncher.launch(intent)
-                            } catch (e: android.content.ActivityNotFoundException) {
-                                cameraError = "برنامه دوربین روی گوشی در دسترس نیست."
-                                cameraFile?.delete()
-                                cameraFile = null
+                                cameraErrorMessage = ""
+                                cameraLauncher.launch(uri)
                             } catch (e: Exception) {
-                                cameraError = "اجرای دوربین ناموفق بود: ${e.localizedMessage ?: "خطای نامشخص"}"
+                                cameraErrorMessage = "اجرای دوربین ناموفق بود: ${e.localizedMessage ?: "خطای نامشخص"}"
                                 cameraFile?.delete()
                                 cameraFile = null
                             }
                         }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Filled.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text(if (cardPhoto.isBlank()) "عکس‌برداری از کارت" else "گرفتن عکس جدید")
                         }
-                        if (cameraError.isNotBlank()) Text(cameraError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        if (cameraErrorMessage.isNotBlank()) Text(cameraErrorMessage, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         if (cardPhoto.isNotBlank()) {
                             Text("پیش‌نمایش عکس کارت؛ تصویر همراه اطلاعات گاوصندوق رمزگذاری می‌شود.", color = Gold, style = MaterialTheme.typography.bodySmall)
                             val previewBytes = remember(cardPhoto) { Base64.decode(cardPhoto, Base64.NO_WRAP) }
