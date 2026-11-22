@@ -69,11 +69,21 @@ data class VaultEntry(
 )
 
 class MainActivity : FragmentActivity() {
+    var cameraResultCallback: ((Boolean) -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = android.graphics.Color.rgb(11, 18, 32)
         window.navigationBarColor = android.graphics.Color.rgb(11, 18, 32)
         setContent { VaultTheme { VaultApp(this) } }
+    }
+
+    @Deprecated("Legacy camera activity result callback")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 1201) {
+            cameraResultCallback?.invoke(resultCode == android.app.Activity.RESULT_OK)
+        }
     }
 }
 
@@ -183,7 +193,7 @@ private fun VaultApp(activity: FragmentActivity) {
     var latestCardPhoto by remember { mutableStateOf<String?>(null) }
     var cameraErrorMessage by remember { mutableStateOf("") }
     DisposableEffect(activity) {
-        activity.cameraResultCallback = { success ->
+        activity.cameraResultCallback = { success: Boolean ->
             val file = cameraFile
             if (success && file != null && file.exists() && file.length() > 0L) {
                 val original = BitmapFactory.decodeFile(file.absolutePath)
