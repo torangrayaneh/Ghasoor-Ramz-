@@ -2,7 +2,9 @@
 
 package com.torangrayaneh.ghasoor
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.os.Bundle
 import android.graphics.Bitmap
@@ -32,6 +34,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import java.io.File
@@ -70,12 +73,23 @@ data class VaultEntry(
 
 class MainActivity : FragmentActivity() {
     var cameraResultCallback: ((Boolean) -> Unit)? = null
+    var cameraPermissionResultCallback: ((Boolean) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = android.graphics.Color.rgb(11, 18, 32)
         window.navigationBarColor = android.graphics.Color.rgb(11, 18, 32)
         setContent { VaultTheme { VaultApp(this) } }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 1202) {
+            cameraPermissionResultCallback?.invoke(
+                grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED
+            )
+            cameraPermissionResultCallback = null
+        }
     }
 
     @Deprecated("Legacy camera activity result callback")
@@ -455,7 +469,15 @@ private fun VaultApp(activity: MainActivity) {
                     OutlinedTextField(note, { note = it }, label = { Text("یادداشت") }, modifier = Modifier.fillMaxWidth())
                     if (category == "بانک و کارت بانکی") {
                         OutlinedButton(onClick = {
-                            launchCamera()
+                            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                                launchCamera()
+                            } else {
+                                activity.cameraPermissionResultCallback = { granted ->
+                                    if (granted) launchCamera()
+                                    else cameraErrorMessage = "برای عکس‌برداری باید دسترسی دوربین را مجاز کنید."
+                                }
+                                ActivityCompat.requestPermissions(activity, arrayOf(Manifest.permission.CAMERA), 1202)
+                            }
                         }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Filled.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text(if (cardPhoto.isBlank()) "عکس‌برداری از کارت" else "گرفتن عکس جدید")
                         }
