@@ -2,11 +2,13 @@
 
 package com.torangrayaneh.ghasoor
 
-import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
 import android.content.Intent
 import android.os.Bundle
+import android.app.Activity
+import android.content.ClipData
+import android.net.Uri
+import android.provider.MediaStore
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.ByteArrayOutputStream
@@ -15,6 +17,7 @@ import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.background
@@ -54,6 +57,18 @@ import java.security.SecureRandom
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+private class SafeTakePicture : ActivityResultContract<Uri, Boolean>() {
+    override fun createIntent(context: Context, input: Uri): Intent =
+        Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+            putExtra(MediaStore.EXTRA_OUTPUT, input)
+            clipData = ClipData.newUri(context.contentResolver, "card_photo", input)
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+        }
+
+    override fun parseResult(resultCode: Int, intent: Intent?): Boolean =
+        resultCode == Activity.RESULT_OK
+}
 
 private val Navy = Color(0xFF0B1220)
 private val Panel = Color(0xFF151F30)
@@ -188,7 +203,7 @@ private fun VaultApp(activity: FragmentActivity) {
     var cameraErrorMessage by remember { mutableStateOf("") }
     // Register the launcher unconditionally at the screen level. Conditional registration
     // inside the add-entry dialog can produce invalid ActivityResult request-code mappings.
-    val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+    val cameraLauncher = rememberLauncherForActivityResult(SafeTakePicture()) { success ->
         val file = cameraFile
         if (success && file != null && file.exists() && file.length() > 0L) {
             val original = BitmapFactory.decodeFile(file.absolutePath)
@@ -222,13 +237,6 @@ private fun VaultApp(activity: FragmentActivity) {
             cameraFile = null
         }
     }
-    val cameraPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        if (granted) launchCamera()
-        else cameraErrorMessage = "برای عکس‌برداری، دسترسی دوربین را از تنظیمات برنامه فعال کنید."
-    }
-
     if (!unlocked) {
         Box(Modifier.fillMaxSize().background(Navy).padding(24.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -447,11 +455,7 @@ private fun VaultApp(activity: FragmentActivity) {
                     OutlinedTextField(note, { note = it }, label = { Text("یادداشت") }, modifier = Modifier.fillMaxWidth())
                     if (category == "بانک و کارت بانکی") {
                         OutlinedButton(onClick = {
-                            if (ContextCompat.checkSelfPermission(activity, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
-                                launchCamera()
-                            } else {
-                                cameraPermissionLauncher.launch(Manifest.permission.CAMERA)
-                            }
+                            launchCamera()
                         }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Filled.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text(if (cardPhoto.isBlank()) "عکس‌برداری از کارت" else "گرفتن عکس جدید")
                         }
