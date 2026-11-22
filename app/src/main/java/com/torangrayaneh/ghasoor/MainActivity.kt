@@ -176,7 +176,7 @@ private enum class VaultTab(val title: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun VaultApp(activity: FragmentActivity) {
+private fun VaultApp(activity: MainActivity) {
     val store = remember { VaultStore(activity) }
     var hasMaster by remember { mutableStateOf(store.hasMaster()) }
     var unlocked by remember { mutableStateOf(false) }
