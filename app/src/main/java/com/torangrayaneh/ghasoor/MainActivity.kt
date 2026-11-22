@@ -1,5 +1,6 @@
 package com.torangrayaneh.ghasoor
 
+import android.content.Context
 import android.os.Bundle
 import android.util.Base64
 import androidx.activity.ComponentActivity
@@ -39,7 +40,7 @@ class MainActivity : ComponentActivity() {
 }
 
 private class VaultStore(private val activity: ComponentActivity) {
-    private val prefs = activity.getSharedPreferences("vault_settings", MODE_PRIVATE)
+    private val prefs = activity.getSharedPreferences("vault_settings", Context.MODE_PRIVATE)
     private val alias = "ghasoor_vault_key"
 
     fun hasMaster() = prefs.contains("master_hash")
