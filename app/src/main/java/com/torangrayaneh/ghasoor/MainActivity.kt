@@ -4,6 +4,7 @@ import android.content.Context
 import android.os.Bundle
 import android.util.Base64
 import androidx.activity.ComponentActivity
+import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -32,7 +33,7 @@ import java.security.SecureRandom
 
 data class VaultEntry(val title: String, val category: String, val username: String, val secret: String, val note: String)
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent { MaterialTheme { VaultApp(this) } }
@@ -116,7 +117,7 @@ private class VaultStore(private val activity: ComponentActivity) {
 }
 
 @Composable
-private fun VaultApp(activity: ComponentActivity) {
+private fun VaultApp(activity: FragmentActivity) {
     val store = remember { VaultStore(activity) }
     var hasMaster by remember { mutableStateOf(store.hasMaster()) }
     var unlocked by remember { mutableStateOf(false) }
