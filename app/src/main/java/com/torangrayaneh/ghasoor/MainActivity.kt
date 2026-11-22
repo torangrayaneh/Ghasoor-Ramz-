@@ -5,6 +5,9 @@ package com.torangrayaneh.ghasoor
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
 import android.util.Base64
 import androidx.fragment.app.FragmentActivity
 import androidx.activity.compose.setContent
@@ -24,6 +27,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.foundation.Image
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -371,7 +377,16 @@ private fun VaultApp(activity: FragmentActivity) {
         val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             val file = cameraFile
             if (success && file != null && file.exists()) {
-                cardPhoto = Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+                val original = BitmapFactory.decodeFile(file.absolutePath)
+                if (original != null) {
+                    val ratio = minOf(1f, 1280f / maxOf(original.width, original.height))
+                    val resized = if (ratio < 1f) Bitmap.createScaledBitmap(original, (original.width * ratio).toInt(), (original.height * ratio).toInt(), true) else original
+                    val output = ByteArrayOutputStream()
+                    resized.compress(Bitmap.CompressFormat.JPEG, 78, output)
+                    cardPhoto = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+                    if (resized !== original) resized.recycle()
+                    original.recycle()
+                } else message = "خواندن عکس کارت ممکن نشد."
             }
             file?.delete()
             cameraFile = null
@@ -486,6 +501,10 @@ private fun EntryCard(entry: VaultEntry, reveal: Boolean, toggle: () -> Unit, ed
             IconButton(onClick = toggle) { Icon(if (reveal) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, "نمایش یا پنهان کردن رمز", tint = Gold) }
         }
         if (entry.cardPhoto.isNotBlank()) {
+            val photoBytes = remember(entry.cardPhoto) { Base64.decode(entry.cardPhoto, Base64.NO_WRAP) }
+            val photoBitmap = remember(entry.cardPhoto) { BitmapFactory.decodeByteArray(photoBytes, 0, photoBytes.size)?.asImageBitmap() }
+            if (photoBitmap != null) Image(bitmap = photoBitmap, contentDescription = "عکس کارت بانکی ${entry.title}",
+                modifier = Modifier.fillMaxWidth().height(150.dp), contentScale = ContentScale.Crop)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.PhotoCamera, null, tint = Gold)
                 Text("عکس کارت بانکی ذخیره شده", color = Gold, style = MaterialTheme.typography.bodySmall)
