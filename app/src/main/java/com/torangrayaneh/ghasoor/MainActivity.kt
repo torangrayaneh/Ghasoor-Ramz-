@@ -2,8 +2,11 @@
 
 package com.torangrayaneh.ghasoor
 
+import android.app.Activity
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
+import android.provider.MediaStore
 import android.os.Bundle
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -374,9 +377,10 @@ private fun VaultApp(activity: FragmentActivity) {
         var note by remember { mutableStateOf(editing?.note ?: "") }
         var cardPhoto by remember { mutableStateOf(editing?.cardPhoto ?: "") }
         var cameraFile by remember { mutableStateOf<File?>(null) }
-        val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        var cameraError by remember { mutableStateOf("") }
+        val cameraLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             val file = cameraFile
-            if (success && file != null && file.exists()) {
+            if (result.resultCode == Activity.RESULT_OK && file != null && file.exists() && file.length() > 0L) {
                 val original = BitmapFactory.decodeFile(file.absolutePath)
                 if (original != null) {
                     val ratio = minOf(1f, 1280f / maxOf(original.width, original.height))
@@ -386,7 +390,9 @@ private fun VaultApp(activity: FragmentActivity) {
                     cardPhoto = Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
                     if (resized !== original) resized.recycle()
                     original.recycle()
-                } else message = "خواندن عکس کارت ممکن نشد."
+                } else cameraError = "خواندن عکس کارت ممکن نشد؛ دوباره عکس بگیرید."
+            } else if (result.resultCode == Activity.RESULT_OK) {
+                cameraError = "دوربین عکس را ذخیره نکرد؛ دوباره تلاش کنید."
             }
             file?.delete()
             cameraFile = null
@@ -415,11 +421,26 @@ private fun VaultApp(activity: FragmentActivity) {
                                 val file = File(activity.cacheDir, "card_${System.currentTimeMillis()}.jpg")
                                 cameraFile = file
                                 val uri = FileProvider.getUriForFile(activity, "${activity.packageName}.fileprovider", file)
-                                cameraLauncher.launch(uri)
-                            } catch (_: Exception) { message = "باز کردن دوربین ممکن نشد." }
+                                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
+                                    putExtra(MediaStore.EXTRA_OUTPUT, uri)
+                                    clipData = ClipData.newUri(activity.contentResolver, "card_photo", uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)
+                                }
+                                if (intent.resolveActivity(activity.packageManager) != null) {
+                                    cameraError = ""
+                                    cameraLauncher.launch(intent)
+                                } else {
+                                    cameraError = "هیچ برنامه دوربینی روی گوشی پیدا نشد."
+                                    cameraFile = null
+                                    file.delete()
+                                }
+                            } catch (_: Exception) {
+                                cameraError = "باز کردن دوربین ممکن نشد؛ مجوز یا برنامه دوربین را بررسی کنید."
+                            }
                         }, modifier = Modifier.fillMaxWidth()) {
                             Icon(Icons.Filled.CameraAlt, null); Spacer(Modifier.width(8.dp)); Text(if (cardPhoto.isBlank()) "عکس‌برداری از کارت" else "گرفتن عکس جدید")
                         }
+                        if (cameraError.isNotBlank()) Text(cameraError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         if (cardPhoto.isNotBlank()) {
                             Text("پیش‌نمایش عکس کارت؛ تصویر همراه اطلاعات گاوصندوق رمزگذاری می‌شود.", color = Gold, style = MaterialTheme.typography.bodySmall)
                             val previewBytes = remember(cardPhoto) { Base64.decode(cardPhoto, Base64.NO_WRAP) }
