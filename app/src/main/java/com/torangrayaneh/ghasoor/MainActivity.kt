@@ -303,7 +303,7 @@ private fun safeSpreadsheetText(value: String): String =
 
 private fun buildHtmlReport(entries: List<VaultEntry>): ByteArray {
     val rows = entries.joinToString("") { e ->
-        """<tr><td>\${xmlEscape(e.title)}</td><td>\${xmlEscape(e.category)}</td><td>\${xmlEscape(e.username)}</td><td>\${xmlEscape(e.secret)}</td><td>\${xmlEscape(e.note)}</td><td>\${xmlEscape(e.history.joinToString("، "))}</td><td>\${xmlEscape(date(e.updatedAt))}</td></tr>"""
+        """<tr><td>${xmlEscape(e.title)}</td><td>${xmlEscape(e.category)}</td><td>${xmlEscape(e.username)}</td><td>${xmlEscape(e.secret)}</td><td>${xmlEscape(e.note)}</td><td>${xmlEscape(e.history.joinToString("، "))}</td><td>${xmlEscape(date(e.updatedAt))}</td></tr>"""
     }
     val html = """<!doctype html>
 <html lang="fa" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -314,7 +314,7 @@ h1{color:#8b6a2b}p{color:#555}.warning{background:#fff0d5;border:1px solid #d6b3
 th,td{border:1px solid #d8dce3;padding:10px;text-align:right;vertical-align:top;white-space:pre-wrap}
 th{background:#151f30;color:#f4f0e6}tr:nth-child(even){background:#f8f8f8}
 </style></head><body><h1>گزارش گاوصندوق رمز من</h1>
-<p>تاریخ تهیه: \${xmlEscape(date(System.currentTimeMillis()))} | تعداد موارد: \${entries.size}</p>
+<p>تاریخ تهیه: ${xmlEscape(date(System.currentTimeMillis()))} | تعداد موارد: ${entries.size}</p>
 <div class="warning">این گزارش حاوی رمزها و اطلاعات محرمانه است. آن را فقط در محل امن نگهداری کنید و برای دیگران ارسال نکنید.</div>
 <div class="wrap"><table><thead><tr><th>عنوان</th><th>دسته‌بندی</th><th>نام کاربری / شناسه</th><th>رمز / اطلاعات محرمانه</th><th>یادداشت</th><th>سوابق رمز</th><th>آخرین بروزرسانی</th></tr></thead><tbody>$rows</tbody></table></div>
 </body></html>"""
@@ -328,11 +328,11 @@ private fun buildExcelReport(entries: List<VaultEntry>): ByteArray {
     }
     val sheetRows = rows.mapIndexed { rowIndex, row ->
         val cells = row.mapIndexed { colIndex, value ->
-            val ref = "\${('A'.code + colIndex).toChar()}\${rowIndex + 1}"
+            val ref = "${('A'.code + colIndex).toChar()}${rowIndex + 1}"
             val safe = xmlEscape(if (rowIndex == 0) value else safeSpreadsheetText(value))
             """<c r="$ref" t="inlineStr"><is><t xml:space="preserve">$safe</t></is></c>"""
         }.joinToString("")
-        """<row r="\${rowIndex + 1}">$cells</row>"""
+        """<row r="${rowIndex + 1}">$cells</row>"""
     }.joinToString("")
     val sheet = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>$sheetRows</sheetData></worksheet>"""
@@ -664,61 +664,102 @@ private fun VaultApp(activity: MainActivity) {
                         }
                     }
                     VaultTab.REPORTS -> {
-                        Spacer(Modifier.height(16.dp)); SectionTitle("گزارش وضعیت گاوصندوق")
-                        VaultCard {
-                            Text("گزارش کلی", color = Gold, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Spacer(Modifier.height(12.dp))
-                            ReportRow("مجموع اطلاعات ذخیره‌شده", entries.size.toString())
-                            ReportRow("حساب‌ها و کارت‌های بانکی", entries.count { it.category == "بانک و کارت بانکی" }.toString())
-                            ReportRow("برنامه‌ها و شبکه‌های اجتماعی", entries.count { it.category == "اپلیکیشن و شبکه اجتماعی" }.toString())
-                            ReportRow("ایمیل‌ها", entries.count { it.category == "ایمیل" }.toString())
-                            ReportRow("موارد دارای سابقه رمز", entries.count { it.history.isNotEmpty() }.toString())
-                            ReportRow("آخرین بروزرسانی", if (entries.isEmpty()) "—" else date(entries.maxOf { it.updatedAt }))
-                            Spacer(Modifier.height(16.dp))
-                            OutlinedButton(onClick = { showBackupDialog = true }, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Filled.Security, null); Spacer(Modifier.width(8.dp)); Text("پشتیبان‌گیری و بازیابی امن")
-                            }
-                            Text("خروجی کامل رمزها و اطلاعات محرمانه", color = Cream, fontWeight = FontWeight.SemiBold)
-                            Text("برای ساخت هر فایل، ابتدا اثر انگشت تأیید می‌شود. فایل خروجی رمزگذاری‌شده نیست؛ آن را در فضای امن نگهداری کنید.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                            Button(onClick = {
-                                authenticateBackup("تأیید اثر انگشت برای خروجی HTML") {
-                                    try {
-                                        pendingReport = buildHtmlReport(entries)
-                                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                                            addCategory(Intent.CATEGORY_OPENABLE)
-                                            type = "text/html"
-                                            putExtra(Intent.EXTRA_TITLE, "GhasoorRamz-Report.html")
+                        Spacer(Modifier.height(16.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            VaultCard {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Surface(shape = RoundedCornerShape(14.dp), color = Color(0xFF26354B), modifier = Modifier.size(48.dp)) {
+                                        Box(contentAlignment = Alignment.Center) {
+                                            Icon(Icons.Filled.Assessment, null, tint = Gold, modifier = Modifier.size(27.dp))
                                         }
-                                        activity.startActivityForResult(intent, 1303)
-                                    } catch (e: Exception) {
-                                        pendingReport = null
-                                        Toast.makeText(activity, "ساخت گزارش ناموفق بود: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text("مرکز گزارش‌های گاوصندوق", color = Cream, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                                        Text("نمای کلی اطلاعات و خروجی امن", color = Muted, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                            }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Navy)) {
-                                Icon(Icons.Filled.Description, null); Spacer(Modifier.width(8.dp)); Text("دریافت گزارش HTML")
+                                Spacer(Modifier.height(8.dp))
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                    Metric("کل موارد", entries.size.toString())
+                                    Metric("بانکی", entries.count { it.category == "بانک و کارت بانکی" }.toString())
+                                    Metric("دیجیتال", entries.count { it.category != "بانک و کارت بانکی" }.toString())
+                                }
+                                Divider(color = Color(0xFF34445B))
+                                ReportRow("ایمیل‌ها", entries.count { it.category == "ایمیل" }.toString())
+                                ReportRow("دارای سابقه رمز", entries.count { it.history.isNotEmpty() }.toString())
+                                ReportRow("آخرین بروزرسانی", if (entries.isEmpty()) "—" else date(entries.maxOf { it.updatedAt }))
                             }
-                            OutlinedButton(onClick = {
-                                authenticateBackup("تأیید اثر انگشت برای خروجی Excel") {
-                                    try {
-                                        pendingReport = buildExcelReport(entries)
-                                        val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                                            addCategory(Intent.CATEGORY_OPENABLE)
-                                            type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                            putExtra(Intent.EXTRA_TITLE, "GhasoorRamz-Report.xlsx")
-                                        }
-                                        activity.startActivityForResult(intent, 1304)
-                                    } catch (e: Exception) {
-                                        pendingReport = null
-                                        Toast.makeText(activity, "ساخت گزارش ناموفق بود: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+
+                            VaultCard {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.FileDownload, null, tint = Gold, modifier = Modifier.size(26.dp))
+                                    Spacer(Modifier.width(10.dp))
+                                    Column {
+                                        Text("خروجی گرفتن از اطلاعات", color = Cream, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                        Text("فرمت دلخواه را انتخاب کنید", color = Muted, style = MaterialTheme.typography.bodySmall)
                                     }
                                 }
-                            }, modifier = Modifier.fillMaxWidth()) {
-                                Icon(Icons.Filled.TableChart, null); Spacer(Modifier.width(8.dp)); Text("دریافت فایل Excel")
+                                Surface(color = Color(0xFF302A1D), shape = RoundedCornerShape(12.dp)) {
+                                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Top) {
+                                        Icon(Icons.Filled.WarningAmber, null, tint = Gold)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("گزارش شامل رمزها و اطلاعات محرمانه است و بدون رمزگذاری ذخیره می‌شود. فقط در محل امن نگهداری کنید.", color = Cream, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                Button(onClick = {
+                                    authenticateBackup("تأیید اثر انگشت برای خروجی HTML") {
+                                        try {
+                                            pendingReport = buildHtmlReport(entries)
+                                            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                                addCategory(Intent.CATEGORY_OPENABLE)
+                                                type = "text/html"
+                                                putExtra(Intent.EXTRA_TITLE, "GhasoorRamz-Report.html")
+                                            }
+                                            activity.startActivityForResult(intent, 1303)
+                                        } catch (e: Exception) {
+                                            pendingReport = null
+                                            Toast.makeText(activity, "ساخت گزارش ناموفق بود: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Navy)) {
+                                    Icon(Icons.Filled.Language, null); Spacer(Modifier.width(8.dp)); Text("دریافت گزارش حرفه‌ای HTML")
+                                }
+                                OutlinedButton(onClick = {
+                                    authenticateBackup("تأیید اثر انگشت برای خروجی Excel") {
+                                        try {
+                                            pendingReport = buildExcelReport(entries)
+                                            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                                                addCategory(Intent.CATEGORY_OPENABLE)
+                                                type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                                putExtra(Intent.EXTRA_TITLE, "GhasoorRamz-Report.xlsx")
+                                            }
+                                            activity.startActivityForResult(intent, 1304)
+                                        } catch (e: Exception) {
+                                            pendingReport = null
+                                            Toast.makeText(activity, "ساخت گزارش ناموفق بود: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Filled.TableChart, null); Spacer(Modifier.width(8.dp)); Text("دریافت فایل Excel")
+                                }
                             }
+
+                            VaultCard {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.Security, null, tint = Gold)
+                                    Spacer(Modifier.width(10.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text("پشتیبان‌گیری و بازیابی", color = Cream, fontWeight = FontWeight.Bold)
+                                        Text("نسخه رمزگذاری‌شده اطلاعات خود را مدیریت کنید", color = Muted, style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }
+                                OutlinedButton(onClick = { showBackupDialog = true }, modifier = Modifier.fillMaxWidth()) {
+                                    Icon(Icons.Filled.Backup, null); Spacer(Modifier.width(8.dp)); Text("باز کردن بخش پشتیبان‌گیری")
+                                }
+                            }
+                            Text("گزارش شامل عنوان، دسته‌بندی، شناسه، رمز، یادداشت و سوابق رمز است. عکس کارت‌ها در فایل گزارش قرار نمی‌گیرد.", color = Muted, style = MaterialTheme.typography.bodySmall)
                         }
-                        Spacer(Modifier.height(12.dp))
-                        Text("گزارش کامل شامل رمزها، شناسه‌ها، یادداشت‌ها و سوابق رمز است. عکس کارت‌ها در گزارش قرار نمی‌گیرد.", color = Muted, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
