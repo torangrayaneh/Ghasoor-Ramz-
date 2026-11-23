@@ -317,7 +317,6 @@ private fun VaultApp(activity: MainActivity) {
     var latestCardPhoto by remember { mutableStateOf<String?>(null) }
     var cameraErrorMessage by remember { mutableStateOf("") }
     var showBackupDialog by remember { mutableStateOf(false) }
-    var backupPassword by remember { mutableStateOf("") }
     var sessionBackupPassword by remember { mutableStateOf("") }
     var backupMessage by remember { mutableStateOf("") }
     var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
@@ -361,15 +360,24 @@ private fun VaultApp(activity: MainActivity) {
                 } else if (uri != null && requestCode == 1302) {
                     val bytes = activity.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: throw IllegalStateException("خواندن فایل ممکن نشد.")
-                    val restored = store.restorePortableBackup(bytes, backupPassword)
+                    if (sessionBackupPassword.isBlank()) {
+                        throw IllegalStateException("ابتدا یک‌بار با رمز اصلی برنامه وارد شوید.")
+                    }
+                    val restored = store.restorePortableBackup(bytes, sessionBackupPassword)
                     store.save(restored)
                     entries = restored
-                    try { store.writeAutomaticBackup(restored, backupPassword) } catch (_: Exception) { }
+                    try { store.writeAutomaticBackup(restored, sessionBackupPassword) } catch (_: Exception) { }
                     backupMessage = "انجام شد؛ بازیابی ${restored.size} مورد با موفقیت انجام شد."
                     Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
+                    showBackupDialog = false
+                } else if (requestCode == 1302 && uri == null) {
+                    backupMessage = "بازیابی لغو شد."
+                    Toast.makeText(activity, backupMessage, Toast.LENGTH_SHORT).show()
+                    showBackupDialog = false
                 }
             } catch (e: Exception) {
-                backupMessage = "عملیات ناموفق بود: ${e.localizedMessage ?: "رمز نادرست یا فایل نامعتبر"}"
+                backupMessage = "عملیات ناموفق بود: ${e.localizedMessage ?: "رمز اصلی نادرست یا فایل نامعتبر"}"
+                Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
             } finally {
                 pendingBackup = null
             }
@@ -624,71 +632,61 @@ private fun VaultApp(activity: MainActivity) {
     if (showBackupDialog) {
         AlertDialog(
             onDismissRequest = { showBackupDialog = false; backupMessage = "" },
-            title = { Text("پشتیبان‌گیری رمزگذاری‌شده") },
+            title = { Text("پشتیبان‌گیری و بازیابی امن") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("از تمام اطلاعات، رمزها، سوابق و عکس کارت‌ها یک فایل رمزگذاری‌شده ساخته می‌شود. برای بازیابی در گوشی دیگر همین رمز لازم است.", color = Muted)
-                    OutlinedTextField(value = backupPassword, onValueChange = { backupPassword = it },
-                        label = { Text("رمز اختصاصی فایل پشتیبان (حداقل ۶ کاراکتر)") },
-                        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                    if (backupMessage.isNotBlank()) Text(backupMessage, color = if (backupMessage.contains("موفق") || backupMessage.contains("انجام شد")) Gold else MaterialTheme.colorScheme.error)
+                    Text(
+                        "برای هر عملیات فقط اثر انگشت تأیید می‌شود. فایل پشتیبان با رمز اصلی برنامه رمزگذاری می‌شود و نیازی به رمز جداگانه ندارد.",
+                        color = Muted
+                    )
+                    if (backupMessage.isNotBlank()) {
+                        Text(
+                            backupMessage,
+                            color = if (backupMessage.contains("موفق") || backupMessage.contains("انجام شد")) Gold else MaterialTheme.colorScheme.error
+                        )
+                    }
                 }
             },
             confirmButton = {
                 Column {
                     TextButton(onClick = {
-                        if (backupPassword.length < 6) backupMessage = "رمز پشتیبان باید حداقل ۶ کاراکتر باشد."
-                        else authenticateBackup("تأیید اثر انگشت برای پشتیبان‌گیری") {
-                            try {
-                                val bytes = store.createPortableBackup(entries, backupPassword)
-                                val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
-                                val fileName = "GhasoorRamz-Backup-$stamp.gvb"
-                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                                    val values = ContentValues().apply {
-                                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-                                        put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
-                                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GhasoorRamz")
-                                        put(MediaStore.Downloads.IS_PENDING, 1)
-                                    }
-                                    val uri = activity.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                                        ?: throw IllegalStateException("ساخت فایل در پوشه Downloads ممکن نشد.")
-                                    try {
-                                        activity.contentResolver.openOutputStream(uri)?.use { it.write(bytes); it.flush() }
-                                            ?: throw IllegalStateException("نوشتن فایل پشتیبان ممکن نشد.")
-                                        val ready = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
-                                        activity.contentResolver.update(uri, ready, null, null)
-                                    } catch (e: Exception) {
-                                        activity.contentResolver.delete(uri, null, null)
-                                        throw e
-                                    }
-                                } else {
-                                    val folder = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.filesDir, "GhasoorRamz")
-                                    if (!folder.exists() && !folder.mkdirs()) throw IllegalStateException("ساخت پوشه پشتیبان ممکن نشد.")
-                                    File(folder, fileName).writeBytes(bytes)
+                        if (sessionBackupPassword.isBlank()) {
+                            backupMessage = "برای استفاده از بکاپ، ابتدا با رمز اصلی برنامه وارد شوید."
+                        } else {
+                            authenticateBackup("تأیید اثر انگشت برای پشتیبان‌گیری") {
+                                try {
+                                    store.writeAutomaticBackup(entries, sessionBackupPassword)
+                                    backupMessage = "پشتیبان‌گیری با موفقیت انجام شد."
+                                    Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
+                                    showBackupDialog = false
+                                } catch (e: Exception) {
+                                    backupMessage = "پشتیبان‌گیری ناموفق بود: ${e.localizedMessage ?: "خطای نامشخص"}"
                                 }
-                                backupMessage = "انجام شد؛ فایل پشتیبان رمزگذاری‌شده به‌صورت خودکار ساخته شد."
-                                Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
-                            } catch (e: Exception) {
-                                backupMessage = "پشتیبان‌گیری ناموفق بود: ${e.localizedMessage ?: "خطای نامشخص"}"
                             }
                         }
-                    }) { Text("پشتیبان‌گیری خودکار با اثر انگشت") }
+                    }) { Text("تهیه پشتیبان با اثر انگشت") }
                     TextButton(onClick = {
-                        if (backupPassword.length < 6) backupMessage = "رمز پشتیبان باید حداقل ۶ کاراکتر باشد."
-                        else authenticateBackup("تأیید اثر انگشت برای بازیابی") {
-                            try {
-                                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                    addCategory(Intent.CATEGORY_OPENABLE); type = "application/octet-stream"
+                        if (sessionBackupPassword.isBlank()) {
+                            backupMessage = "برای بازیابی، ابتدا با رمز اصلی برنامه وارد شوید."
+                        } else {
+                            authenticateBackup("تأیید اثر انگشت برای بازیابی") {
+                                try {
+                                    val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                        addCategory(Intent.CATEGORY_OPENABLE)
+                                        type = "application/octet-stream"
+                                    }
+                                    activity.startActivityForResult(intent, 1302)
+                                } catch (e: Exception) {
+                                    backupMessage = "بازکردن فایل پشتیبان ناموفق بود: ${e.localizedMessage}"
                                 }
-                                activity.startActivityForResult(intent, 1302)
-                            } catch (e: Exception) {
-                                backupMessage = "بازکردن فایل پشتیبان ناموفق بود: ${e.localizedMessage}"
                             }
                         }
                     }) { Text("بازیابی با اثر انگشت") }
                 }
             },
-            dismissButton = { TextButton(onClick = { showBackupDialog = false; backupMessage = ""; backupPassword = "" }) { Text("بستن") } }
+            dismissButton = {
+                TextButton(onClick = { showBackupDialog = false; backupMessage = "" }) { Text("بستن") }
+            }
         )
     }
 
