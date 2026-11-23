@@ -6,7 +6,11 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.Intent
+import android.content.ContentValues
 import android.os.Bundle
+import android.os.Build
+import android.os.Environment
+import android.provider.MediaStore
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import java.io.ByteArrayOutputStream
@@ -293,7 +297,8 @@ private fun VaultApp(activity: MainActivity) {
                     val restored = store.restorePortableBackup(bytes, backupPassword)
                     store.save(restored)
                     entries = restored
-                    backupMessage = "بازیابی موفق بود؛ ${restored.size} مورد به گاوصندوق منتقل شد."
+                    backupMessage = "انجام شد؛ بازیابی ${restored.size} مورد با موفقیت انجام شد."
+                    Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
                 }
             } catch (e: Exception) {
                 backupMessage = "عملیات ناموفق بود: ${e.localizedMessage ?: "رمز نادرست یا فایل نامعتبر"}"
@@ -304,6 +309,34 @@ private fun VaultApp(activity: MainActivity) {
         onDispose {
             activity.cameraResultCallback = null
             activity.documentResultCallback = null
+        }
+    }
+    val authenticateBackup: (String, () -> Unit) -> Unit = { promptTitle, onAuthenticated ->
+        val biometricManager = BiometricManager.from(activity)
+        if (biometricManager.canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG) != BiometricManager.BIOMETRIC_SUCCESS) {
+            backupMessage = "برای این عملیات ابتدا اثر انگشت را در تنظیمات گوشی فعال کنید."
+        } else {
+            val prompt = BiometricPrompt(activity, ContextCompat.getMainExecutor(activity),
+                object : BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                        super.onAuthenticationSucceeded(result)
+                        onAuthenticated()
+                    }
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        super.onAuthenticationError(errorCode, errString)
+                        backupMessage = "تأیید اثر انگشت لغو شد: $errString"
+                    }
+                    override fun onAuthenticationFailed() {
+                        super.onAuthenticationFailed()
+                        backupMessage = "اثر انگشت شناسایی نشد؛ دوباره تلاش کنید."
+                    }
+                })
+            prompt.authenticate(BiometricPrompt.PromptInfo.Builder()
+                .setTitle(promptTitle)
+                .setSubtitle("برای ادامه، هویت خود را با اثر انگشت تأیید کنید")
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+                .setNegativeButtonText("انصراف")
+                .build())
         }
     }
     val launchCamera: () -> Unit = {
@@ -519,24 +552,54 @@ private fun VaultApp(activity: MainActivity) {
                 Column {
                     TextButton(onClick = {
                         if (backupPassword.length < 8) backupMessage = "رمز پشتیبان باید حداقل ۸ کاراکتر باشد."
-                        else try {
-                            pendingBackup = store.createPortableBackup(entries, backupPassword)
-                            val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE); type = "application/octet-stream"
-                                putExtra(Intent.EXTRA_TITLE, "GhasoorRamz-Backup.gvb")
+                        else authenticateBackup("تأیید اثر انگشت برای پشتیبان‌گیری") {
+                            try {
+                                val bytes = store.createPortableBackup(entries, backupPassword)
+                                val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date())
+                                val fileName = "GhasoorRamz-Backup-$stamp.gvb"
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                                    val values = ContentValues().apply {
+                                        put(MediaStore.Downloads.DISPLAY_NAME, fileName)
+                                        put(MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                                        put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GhasoorRamz")
+                                        put(MediaStore.Downloads.IS_PENDING, 1)
+                                    }
+                                    val uri = activity.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
+                                        ?: throw IllegalStateException("ساخت فایل در پوشه Downloads ممکن نشد.")
+                                    try {
+                                        activity.contentResolver.openOutputStream(uri)?.use { it.write(bytes); it.flush() }
+                                            ?: throw IllegalStateException("نوشتن فایل پشتیبان ممکن نشد.")
+                                        val ready = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
+                                        activity.contentResolver.update(uri, ready, null, null)
+                                    } catch (e: Exception) {
+                                        activity.contentResolver.delete(uri, null, null)
+                                        throw e
+                                    }
+                                } else {
+                                    val folder = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.filesDir, "GhasoorRamz")
+                                    if (!folder.exists() && !folder.mkdirs()) throw IllegalStateException("ساخت پوشه پشتیبان ممکن نشد.")
+                                    File(folder, fileName).writeBytes(bytes)
+                                }
+                                backupMessage = "انجام شد؛ فایل پشتیبان رمزگذاری‌شده به‌صورت خودکار ساخته شد."
+                                Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
+                            } catch (e: Exception) {
+                                backupMessage = "پشتیبان‌گیری ناموفق بود: ${e.localizedMessage ?: "خطای نامشخص"}"
                             }
-                            activity.startActivityForResult(intent, 1301)
-                        } catch (e: Exception) { backupMessage = "ساخت نسخه پشتیبان ناموفق بود: ${e.localizedMessage}" }
-                    }) { Text("ایجاد فایل پشتیبان") }
+                        }
+                    }) { Text("پشتیبان‌گیری خودکار با اثر انگشت") }
                     TextButton(onClick = {
                         if (backupPassword.length < 8) backupMessage = "رمز پشتیبان باید حداقل ۸ کاراکتر باشد."
-                        else {
-                            val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                addCategory(Intent.CATEGORY_OPENABLE); type = "*/*"
+                        else authenticateBackup("تأیید اثر انگشت برای بازیابی") {
+                            try {
+                                val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                                    addCategory(Intent.CATEGORY_OPENABLE); type = "application/octet-stream"
+                                }
+                                activity.startActivityForResult(intent, 1302)
+                            } catch (e: Exception) {
+                                backupMessage = "بازکردن فایل پشتیبان ناموفق بود: ${e.localizedMessage}"
                             }
-                            activity.startActivityForResult(intent, 1302)
                         }
-                    }) { Text("بازیابی از فایل پشتیبان") }
+                    }) { Text("بازیابی با اثر انگشت") }
                 }
             },
             dismissButton = { TextButton(onClick = { showBackupDialog = false; backupMessage = ""; backupPassword = "" }) { Text("بستن") } }
