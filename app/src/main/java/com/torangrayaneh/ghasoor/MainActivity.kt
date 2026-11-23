@@ -545,7 +545,7 @@ private fun VaultApp(activity: MainActivity) {
                     OutlinedTextField(value = backupPassword, onValueChange = { backupPassword = it },
                         label = { Text("رمز اختصاصی فایل پشتیبان (حداقل ۸ کاراکتر)") },
                         visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
-                    if (backupMessage.isNotBlank()) Text(backupMessage, color = if (backupMessage.contains("موفق")) Gold else MaterialTheme.colorScheme.error)
+                    if (backupMessage.isNotBlank()) Text(backupMessage, color = if (backupMessage.contains("موفق") || backupMessage.contains("انجام شد")) Gold else MaterialTheme.colorScheme.error)
                 }
             },
             confirmButton = {
