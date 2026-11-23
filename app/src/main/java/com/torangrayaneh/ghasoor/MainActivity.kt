@@ -105,7 +105,7 @@ class MainActivity : FragmentActivity() {
         super.onActivityResult(requestCode, resultCode, data)
         if (requestCode == 1201) {
             cameraResultCallback?.invoke(resultCode == android.app.Activity.RESULT_OK)
-        } else if (requestCode == 1301 || requestCode == 1302) {
+        } else if (requestCode == 1301 || requestCode == 1302 || requestCode == 1303 || requestCode == 1304) {
             documentResultCallback?.invoke(requestCode, if (resultCode == RESULT_OK) data?.data else null)
         }
     }
