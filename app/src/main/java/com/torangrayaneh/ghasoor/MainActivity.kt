@@ -224,8 +224,55 @@ private class VaultStore(private val activity: FragmentActivity) {
             VaultEntry(o.optString("title"), o.optString("category"), o.optString("username"),
                 o.optString("secret"), o.optString("note"), o.optLong("updatedAt", System.currentTimeMillis()),
                 (0 until oldHistory.length()).map { oldHistory.getString(it) }, o.optString("cardPhoto", ""))
+        }    }
+
+    /**
+     * Writes a portable, password-encrypted backup to Downloads/GhasoorRamz.
+     * A stable filename is updated in place so repeated saves do not fill storage.
+     * On Android 10+ the Downloads entry survives uninstalling this app.
+     */
+    fun writeAutomaticBackup(entries: List<VaultEntry>, backupPassword: String) {
+        require(backupPassword.length >= 6) { "رمز اصلی برای پشتیبان‌گیری کافی نیست." }
+        val bytes = createPortableBackup(entries, backupPassword)
+        val fileName = "GhasoorRamz-AutoBackup.gvb"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val resolver = activity.contentResolver
+            val collection = MediaStore.Downloads.EXTERNAL_CONTENT_URI
+            val relativePath = Environment.DIRECTORY_DOWNLOADS + "/GhasoorRamz/"
+            val existing = resolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.DISPLAY_NAME}=? AND ${MediaStore.MediaColumns.RELATIVE_PATH}=?",
+                arrayOf(fileName, relativePath),
+                null
+            )?.use { cursor ->
+                if (cursor.moveToFirst()) Uri.withAppendedPath(collection, cursor.getLong(0).toString()) else null
+            }
+            val uri = existing ?: resolver.insert(collection, ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
+                put(MediaStore.MediaColumns.MIME_TYPE, "application/octet-stream")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }) ?: throw IllegalStateException("ساخت فایل پشتیبان در Downloads ممکن نشد.")
+            try {
+                resolver.openOutputStream(uri, "wt")?.use { it.write(bytes); it.flush() }
+                    ?: throw IllegalStateException("نوشتن فایل پشتیبان ممکن نشد.")
+                if (existing == null) {
+                    resolver.update(uri, ContentValues().apply {
+                        put(MediaStore.MediaColumns.IS_PENDING, 0)
+                    }, null, null)
+                }
+            } catch (e: Exception) {
+                if (existing == null) resolver.delete(uri, null, null)
+                throw e
+            }
+        } else {
+            val folder = File(activity.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: activity.filesDir, "GhasoorRamz")
+            if (!folder.exists() && !folder.mkdirs()) throw IllegalStateException("ساخت پوشه پشتیبان ممکن نشد.")
+            File(folder, fileName).writeBytes(bytes)
         }
     }
+
 }
 
 private enum class VaultTab(val title: String) {
@@ -252,6 +299,7 @@ private fun VaultApp(activity: MainActivity) {
     var cameraErrorMessage by remember { mutableStateOf("") }
     var showBackupDialog by remember { mutableStateOf(false) }
     var backupPassword by remember { mutableStateOf("") }
+    var sessionBackupPassword by remember { mutableStateOf("") }
     var backupMessage by remember { mutableStateOf("") }
     var pendingBackup by remember { mutableStateOf<ByteArray?>(null) }
     DisposableEffect(activity) {
@@ -297,6 +345,7 @@ private fun VaultApp(activity: MainActivity) {
                     val restored = store.restorePortableBackup(bytes, backupPassword)
                     store.save(restored)
                     entries = restored
+                    try { store.writeAutomaticBackup(restored, backupPassword) } catch (_: Exception) { }
                     backupMessage = "انجام شد؛ بازیابی ${restored.size} مورد با موفقیت انجام شد."
                     Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
                 }
@@ -377,10 +426,20 @@ private fun VaultApp(activity: MainActivity) {
                 Button(onClick = {
                     if (password.length < 6) message = "رمز اصلی باید حداقل ۶ کاراکتر باشد."
                     else if (!hasMaster) {
-                        if (store.setMaster(password)) { hasMaster = true; unlocked = true; entries = store.load(); password = "" }
+                        if (store.setMaster(password)) {
+                            hasMaster = true; unlocked = true; entries = store.load()
+                            sessionBackupPassword = password
+                            try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { }
+                            password = ""
+                        }
                         else message = "ساخت گاوصندوق ناموفق بود."
                     } else if (store.verify(password)) {
-                        try { entries = store.load(); unlocked = true; password = ""; message = "" }
+                        try {
+                            entries = store.load(); unlocked = true
+                            sessionBackupPassword = password
+                            try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { }
+                            password = ""; message = ""
+                        }
                         catch (_: Exception) { message = "خواندن اطلاعات ممکن نشد." }
                     } else message = "رمز اصلی نادرست است."
                 }, modifier = Modifier.fillMaxWidth(), colors = ButtonDefaults.buttonColors(containerColor = Gold, contentColor = Navy)) {
@@ -412,7 +471,7 @@ private fun VaultApp(activity: MainActivity) {
                 title = { Column { Text("گاوصندوق رمز من", fontWeight = FontWeight.Bold, color = Cream); Text("مدیریت امن اطلاعات محرمانه", style = MaterialTheme.typography.labelSmall, color = Muted) } },
                 actions = {
                     IconButton(onClick = { showAbout = true }) { Icon(Icons.Filled.Info, "درباره ما", tint = Gold) }
-                    IconButton(onClick = { unlocked = false; entries = emptyList(); revealed = emptySet() }) { Icon(Icons.Filled.Lock, "قفل برنامه", tint = Gold) }
+                    IconButton(onClick = { unlocked = false; entries = emptyList(); revealed = emptySet(); sessionBackupPassword = "" }) { Icon(Icons.Filled.Lock, "قفل برنامه", tint = Gold) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Navy)
             )
@@ -471,7 +530,7 @@ private fun VaultApp(activity: MainActivity) {
                         val recent = entries.sortedByDescending { it.updatedAt }.take(3)
                         if (recent.isEmpty()) EmptyState("هنوز اطلاعاتی ثبت نشده است.")
                         else LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(recent) { entry -> EntryCard(entry, revealed.contains(entry.title), { revealed = if (revealed.contains(entry.title)) revealed - entry.title else revealed + entry.title }, { editing = entry; showAdd = true }, { entries = entries - entry; store.save(entries) }) }
+                            items(recent) { entry -> EntryCard(entry, revealed.contains(entry.title), { revealed = if (revealed.contains(entry.title)) revealed - entry.title else revealed + entry.title }, { editing = entry; showAdd = true }, { entries = entries - entry; store.save(entries); if (sessionBackupPassword.isNotBlank()) { try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { backupMessage = "ذخیره اطلاعات انجام شد، اما تهیه پشتیبان خودکار ناموفق بود." } } }) }
                         }
                     }
                     VaultTab.BANKS -> EntryList("حساب‌ها و کارت‌های بانکی", entries.filter { it.category == "بانک و کارت بانکی" }, revealed, { key -> revealed = if (key in revealed) revealed - key else revealed + key }, { editing = it; showAdd = true }, { entry -> entries = entries - entry; store.save(entries) })
