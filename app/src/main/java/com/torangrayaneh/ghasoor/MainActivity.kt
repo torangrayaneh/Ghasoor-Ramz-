@@ -137,6 +137,22 @@ private class VaultStore(private val activity: FragmentActivity) {
         true
     } catch (_: Exception) { false }
 
+    fun saveAutoBackupPassword(password: String) {
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.ENCRYPT_MODE, key())
+        val encrypted = cipher.doFinal(password.toByteArray(Charsets.UTF_8))
+        prefs.edit().putString("auto_backup_password",
+            Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)).apply()
+    }
+
+    fun getAutoBackupPassword(): String? = try {
+        val packed = Base64.decode(prefs.getString("auto_backup_password", null) ?: return null, Base64.NO_WRAP)
+        if (packed.size <= 12) return null
+        val cipher = Cipher.getInstance("AES/GCM/NoPadding")
+        cipher.init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, packed.copyOfRange(0, 12)))
+        String(cipher.doFinal(packed.copyOfRange(12, packed.size)), Charsets.UTF_8)
+    } catch (_: Exception) { null }
+
     fun verify(password: String): Boolean = try {
         val salt = Base64.decode(prefs.getString("master_salt", "") ?: "", Base64.NO_WRAP)
         val expected = Base64.decode(prefs.getString("master_hash", "") ?: "", Base64.NO_WRAP)
@@ -429,6 +445,7 @@ private fun VaultApp(activity: MainActivity) {
                         if (store.setMaster(password)) {
                             hasMaster = true; unlocked = true; entries = store.load()
                             sessionBackupPassword = password
+                            store.saveAutoBackupPassword(password)
                             try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { }
                             password = ""
                         }
@@ -437,6 +454,7 @@ private fun VaultApp(activity: MainActivity) {
                         try {
                             entries = store.load(); unlocked = true
                             sessionBackupPassword = password
+                            store.saveAutoBackupPassword(password)
                             try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { }
                             password = ""; message = ""
                         }
@@ -451,8 +469,14 @@ private fun VaultApp(activity: MainActivity) {
                             object : BiometricPrompt.AuthenticationCallback() {
                                 override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
                                     super.onAuthenticationSucceeded(result)
-                                    try { entries = store.load(); unlocked = true; message = "" }
-                                    catch (_: Exception) { message = "بازکردن گاوصندوق ناموفق بود." }
+                                    try {
+                                        entries = store.load()
+                                        sessionBackupPassword = store.getAutoBackupPassword().orEmpty()
+                                        if (sessionBackupPassword.isNotBlank()) {
+                                            try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { }
+                                        }
+                                        unlocked = true; message = ""
+                                    } catch (_: Exception) { message = "بازکردن گاوصندوق ناموفق بود." }
                                 }
                             })
                         prompt.authenticate(BiometricPrompt.PromptInfo.Builder().setTitle("ورود به گاوصندوق")
