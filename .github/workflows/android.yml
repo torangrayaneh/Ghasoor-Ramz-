@@ -40,7 +40,7 @@ jobs:
             echo "Permanent release signing key found."
           else
             echo "HAS_RELEASE_SIGNING=false" >> "$GITHUB_ENV"
-            echo "Signing secrets are not configured; building an installable debug APK."
+            echo "Signing secrets are not configured; the build will stop to avoid producing an APK with a temporary signing key."
           fi
 
       - name: Set up Android SDK
