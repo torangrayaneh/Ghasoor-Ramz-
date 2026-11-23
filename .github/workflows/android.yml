@@ -54,12 +54,16 @@ jobs:
         with:
           gradle-version: "8.9"
 
+      - name: Require permanent release signing key
+        if: env.HAS_RELEASE_SIGNING != 'true'
+        run: |
+          echo "::error::Permanent signing secrets are missing. Configure ANDROID_KEYSTORE_BASE64, ANDROID_STORE_PASSWORD, ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD in repository Actions secrets."
+          exit 1
+
       - name: Build signed release APK
-        if: env.HAS_RELEASE_SIGNING == 'true'
         run: gradle --no-daemon :app:assembleRelease
 
       - name: Verify signed release APK
-        if: env.HAS_RELEASE_SIGNING == 'true'
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
@@ -68,34 +72,11 @@ jobs:
           sha256sum "$APK" > "$APK.sha256"
 
       - name: Upload signed release APK
-        if: env.HAS_RELEASE_SIGNING == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: Ghasoor-Ramz-signed-release
           path: |
             app/build/outputs/apk/release/app-release.apk
             app/build/outputs/apk/release/app-release.apk.sha256
-          if-no-files-found: error
-          retention-days: 90
-
-      - name: Build installable debug APK
-        if: env.HAS_RELEASE_SIGNING != 'true'
-        run: gradle --no-daemon :app:assembleDebug
-
-      - name: Verify debug APK exists
-        if: env.HAS_RELEASE_SIGNING != 'true'
-        run: |
-          APK="app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$APK"
-          sha256sum "$APK" > "$APK.sha256"
-
-      - name: Upload debug APK
-        if: env.HAS_RELEASE_SIGNING != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: Ghasoor-Ramz-debug-apk
-          path: |
-            app/build/outputs/apk/debug/app-debug.apk
-            app/build/outputs/apk/debug/app-debug.apk.sha256
           if-no-files-found: error
           retention-days: 90
