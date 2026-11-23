@@ -560,8 +560,8 @@ private fun VaultApp(activity: MainActivity) {
                             items(recent) { entry -> EntryCard(entry, revealed.contains(entry.title), { revealed = if (revealed.contains(entry.title)) revealed - entry.title else revealed + entry.title }, { editing = entry; showAdd = true }, { entries = entries - entry; store.save(entries); if (sessionBackupPassword.isNotBlank()) { try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { backupMessage = "ذخیره اطلاعات انجام شد، اما تهیه پشتیبان خودکار ناموفق بود." } } }) }
                         }
                     }
-                    VaultTab.BANKS -> EntryList("حساب‌ها و کارت‌های بانکی", entries.filter { it.category == "بانک و کارت بانکی" }, revealed, { key -> revealed = if (key in revealed) revealed - key else revealed + key }, { editing = it; showAdd = true }, { entry -> entries = entries - entry; store.save(entries) })
-                    VaultTab.APPS -> EntryList("اپلیکیشن‌ها و شبکه‌های اجتماعی", entries.filter { it.category == "اپلیکیشن و شبکه اجتماعی" || it.category == "ایمیل" || it.category == "سایر" }, revealed, { key -> revealed = if (key in revealed) revealed - key else revealed + key }, { editing = it; showAdd = true }, { entry -> entries = entries - entry; store.save(entries) })
+                    VaultTab.BANKS -> EntryList("حساب‌ها و کارت‌های بانکی", entries.filter { it.category == "بانک و کارت بانکی" }, revealed, { key -> revealed = if (key in revealed) revealed - key else revealed + key }, { editing = it; showAdd = true }, { entry -> entries = entries - entry; store.save(entries); if (sessionBackupPassword.isNotBlank()) { try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { backupMessage = "ذخیره اطلاعات انجام شد، اما تهیه پشتیبان خودکار ناموفق بود." } } })
+                    VaultTab.APPS -> EntryList("اپلیکیشن‌ها و شبکه‌های اجتماعی", entries.filter { it.category == "اپلیکیشن و شبکه اجتماعی" || it.category == "ایمیل" || it.category == "سایر" }, revealed, { key -> revealed = if (key in revealed) revealed - key else revealed + key }, { editing = it; showAdd = true }, { entry -> entries = entries - entry; store.save(entries); if (sessionBackupPassword.isNotBlank()) { try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { backupMessage = "ذخیره اطلاعات انجام شد، اما تهیه پشتیبان خودکار ناموفق بود." } } })
                     VaultTab.HISTORY -> {
                         Spacer(Modifier.height(16.dp)); SectionTitle("سوابق تغییر رمزها")
                         val historyItems = entries.filter { it.history.isNotEmpty() }.sortedByDescending { it.updatedAt }
@@ -779,7 +779,7 @@ private fun VaultApp(activity: MainActivity) {
                             secret = secret, note = note, updatedAt = System.currentTimeMillis(), cardPhoto = cardPhoto,
                             history = if (secret != old.secret) old.history + old.secret else old.history)
                         entries = if (old == null) entries + updated else entries.map { if (it == old) updated else it }
-                        store.save(entries); showAdd = false; editing = null
+                        store.save(entries); if (sessionBackupPassword.isNotBlank()) { try { store.writeAutomaticBackup(entries, sessionBackupPassword) } catch (_: Exception) { backupMessage = "ذخیره اطلاعات انجام شد، اما تهیه پشتیبان خودکار ناموفق بود." } }; showAdd = false; editing = null
                     }
                 }) { Text("ذخیره امن") }
             },
