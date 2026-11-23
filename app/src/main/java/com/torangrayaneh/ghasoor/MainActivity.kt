@@ -49,6 +49,7 @@ import javax.crypto.spec.GCMParameterSpec
 import javax.crypto.spec.PBEKeySpec
 import javax.crypto.spec.SecretKeySpec
 import android.net.Uri
+import android.widget.Toast
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import java.security.SecureRandom
@@ -275,9 +276,17 @@ private fun VaultApp(activity: MainActivity) {
             try {
                 if (uri != null && requestCode == 1301) {
                     val bytes = pendingBackup ?: throw IllegalStateException("نسخه پشتیبان آماده نیست.")
-                    activity.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                    val output = activity.contentResolver.openOutputStream(uri)
                         ?: throw IllegalStateException("ذخیره فایل انجام نشد.")
-                    backupMessage = "نسخه پشتیبان رمزگذاری‌شده با موفقیت ذخیره شد."
+                    output.use { stream ->
+                        stream.write(bytes)
+                        stream.flush()
+                    }
+                    backupMessage = "انجام شد؛ فایل پشتیبان رمزگذاری‌شده با موفقیت ذخیره شد."
+                    Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
+                } else if (requestCode == 1301 && uri == null) {
+                    backupMessage = "ذخیره فایل لغو شد؛ فایل پشتیبان در گوشی ذخیره نشد."
+                    Toast.makeText(activity, backupMessage, Toast.LENGTH_LONG).show()
                 } else if (uri != null && requestCode == 1302) {
                     val bytes = activity.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: throw IllegalStateException("خواندن فایل ممکن نشد.")
