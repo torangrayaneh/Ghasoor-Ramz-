@@ -629,7 +629,7 @@ private fun VaultApp(activity: MainActivity) {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("از تمام اطلاعات، رمزها، سوابق و عکس کارت‌ها یک فایل رمزگذاری‌شده ساخته می‌شود. برای بازیابی در گوشی دیگر همین رمز لازم است.", color = Muted)
                     OutlinedTextField(value = backupPassword, onValueChange = { backupPassword = it },
-                        label = { Text("رمز اختصاصی فایل پشتیبان (حداقل ۸ کاراکتر)") },
+                        label = { Text("رمز اختصاصی فایل پشتیبان (حداقل ۶ کاراکتر)") },
                         visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
                     if (backupMessage.isNotBlank()) Text(backupMessage, color = if (backupMessage.contains("موفق") || backupMessage.contains("انجام شد")) Gold else MaterialTheme.colorScheme.error)
                 }
@@ -637,7 +637,7 @@ private fun VaultApp(activity: MainActivity) {
             confirmButton = {
                 Column {
                     TextButton(onClick = {
-                        if (backupPassword.length < 8) backupMessage = "رمز پشتیبان باید حداقل ۸ کاراکتر باشد."
+                        if (backupPassword.length < 6) backupMessage = "رمز پشتیبان باید حداقل ۶ کاراکتر باشد."
                         else authenticateBackup("تأیید اثر انگشت برای پشتیبان‌گیری") {
                             try {
                                 val bytes = store.createPortableBackup(entries, backupPassword)
@@ -674,7 +674,7 @@ private fun VaultApp(activity: MainActivity) {
                         }
                     }) { Text("پشتیبان‌گیری خودکار با اثر انگشت") }
                     TextButton(onClick = {
-                        if (backupPassword.length < 8) backupMessage = "رمز پشتیبان باید حداقل ۸ کاراکتر باشد."
+                        if (backupPassword.length < 6) backupMessage = "رمز پشتیبان باید حداقل ۶ کاراکتر باشد."
                         else authenticateBackup("تأیید اثر انگشت برای بازیابی") {
                             try {
                                 val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
