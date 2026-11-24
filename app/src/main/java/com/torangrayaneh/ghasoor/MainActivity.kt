@@ -137,6 +137,8 @@ private class VaultStore(private val activity: FragmentActivity) {
         true
     } catch (_: Exception) { false }
 
+    fun changeMaster(password: String): Boolean = setMaster(password)
+
     fun saveAutoBackupPassword(password: String) {
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, key())
@@ -378,6 +380,11 @@ private fun VaultApp(activity: MainActivity) {
     var tab by remember { mutableStateOf(VaultTab.HOME) }
     var revealed by remember { mutableStateOf(setOf<String>()) }
     var showAbout by remember { mutableStateOf(false) }
+    var showChangePasswordDialog by remember { mutableStateOf(false) }
+    var currentMasterInput by remember { mutableStateOf("") }
+    var newMasterInput by remember { mutableStateOf("") }
+    var confirmMasterInput by remember { mutableStateOf("") }
+    var changePasswordMessage by remember { mutableStateOf("") }
     val context = LocalContext.current
     var cameraFile by remember { mutableStateOf<File?>(null) }
     var latestCardPhoto by remember { mutableStateOf<String?>(null) }
@@ -583,6 +590,9 @@ private fun VaultApp(activity: MainActivity) {
             TopAppBar(
                 title = { Column { Text("گاوصندوق رمز من", fontWeight = FontWeight.Bold, color = Cream); Text("مدیریت امن اطلاعات محرمانه", style = MaterialTheme.typography.labelSmall, color = Muted) } },
                 actions = {
+                    IconButton(onClick = { showChangePasswordDialog = true; currentMasterInput = ""; newMasterInput = ""; confirmMasterInput = ""; changePasswordMessage = "" }) {
+                        Icon(Icons.Filled.Key, "تغییر رمز ورود", tint = Gold)
+                    }
                     IconButton(onClick = { showAbout = true }) { Icon(Icons.Filled.Info, "درباره ما", tint = Gold) }
                     IconButton(onClick = { unlocked = false; entries = emptyList(); revealed = emptySet(); sessionBackupPassword = "" }) { Icon(Icons.Filled.Lock, "قفل برنامه", tint = Gold) }
                 },
@@ -764,6 +774,61 @@ private fun VaultApp(activity: MainActivity) {
                 }
             }
         }
+    }
+
+    if (showChangePasswordDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showChangePasswordDialog = false
+                currentMasterInput = ""; newMasterInput = ""; confirmMasterInput = ""; changePasswordMessage = ""
+            },
+            title = { Text("تغییر رمز ورود") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("برای تغییر رمز، ابتدا رمز فعلی را تأیید کنید. اطلاعات ذخیره‌شده و اثر انگشت شما حفظ می‌شوند.", color = Muted)
+                    OutlinedTextField(currentMasterInput, { currentMasterInput = it }, label = { Text("رمز فعلی") },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(newMasterInput, { newMasterInput = it }, label = { Text("رمز جدید (حداقل ۶ کاراکتر)") },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(confirmMasterInput, { confirmMasterInput = it }, label = { Text("تکرار رمز جدید") },
+                        visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+                    if (changePasswordMessage.isNotBlank()) {
+                        Text(changePasswordMessage, color = if (changePasswordMessage.contains("موفق")) Gold else MaterialTheme.colorScheme.error)
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    changePasswordMessage = when {
+                        !store.verify(currentMasterInput) -> "رمز فعلی صحیح نیست."
+                        newMasterInput.length < 6 -> "رمز جدید باید حداقل ۶ کاراکتر باشد."
+                        newMasterInput != confirmMasterInput -> "تکرار رمز جدید مطابقت ندارد."
+                        newMasterInput == currentMasterInput -> "رمز جدید باید با رمز فعلی متفاوت باشد."
+                        else -> {
+                            if (store.changeMaster(newMasterInput)) {
+                                sessionBackupPassword = newMasterInput
+                                store.saveAutoBackupPassword(newMasterInput)
+                                val backupSaved = try {
+                                    store.writeAutomaticBackup(entries, newMasterInput)
+                                    true
+                                } catch (_: Exception) { false }
+                                showChangePasswordDialog = false
+                                Toast.makeText(activity,
+                                    if (backupSaved) "رمز ورود با موفقیت تغییر کرد." else "رمز تغییر کرد؛ تهیه پشتیبان خودکار ناموفق بود.",
+                                    Toast.LENGTH_LONG).show()
+                                "تغییر رمز با موفقیت انجام شد."
+                            } else "تغییر رمز انجام نشد؛ دوباره تلاش کنید."
+                        }
+                    }
+                }) { Text("ثبت رمز جدید") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showChangePasswordDialog = false
+                    currentMasterInput = ""; newMasterInput = ""; confirmMasterInput = ""; changePasswordMessage = ""
+                }) { Text("انصراف") }
+            }
+        )
     }
 
     if (showBackupDialog) {
